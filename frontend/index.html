@@ -466,6 +466,17 @@ html, body {
 .report-stats .stat .v.green { color: var(--green); }
 .report-stats .stat .k { font-size: 14px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint); font-weight: 700; }
 .report-actions { display: flex; gap: 8px; }
+/* ===== Subject detail modal ===== */
+.subject-modal-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,0.45); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; animation: fadeIn 0.15s ease-out; }
+.subject-modal { background: var(--bg-panel); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: 0 12px 48px rgba(0,0,0,0.22); width: min(560px, calc(100vw - 48px)); max-height: 70vh; display: flex; flex-direction: column; animation: overlayIn 0.18s cubic-bezier(0.2,0.7,0.3,1); }
+.subject-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.subject-modal-head span { font-size: 14px; font-weight: 700; color: var(--text-faint); letter-spacing: 0.08em; text-transform: uppercase; }
+.subject-modal-body { padding: 18px; overflow-y: auto; white-space: pre-wrap; font-size: 14px; line-height: 1.7; color: var(--text); font-family: inherit; }
+.subject-modal-close { width: 28px; height: 28px; border-radius: 7px; border: 1.5px solid var(--line-strong); background: transparent; color: var(--text-muted); cursor: pointer; display: grid; place-items: center; transition: all 0.12s; }
+.subject-modal-close:hover { background: var(--bg); color: var(--text); }
+.view-request-link { font-size: 13px; font-weight: 500; color: var(--text-faint); background: none; border: none; cursor: pointer; padding: 0; text-decoration: underline; text-underline-offset: 3px; transition: color 0.12s; margin-left: 10px; vertical-align: middle; }
+.view-request-link:hover { color: var(--red); }
+
 /* ===== Report overlay ===== */
 .overlay { position: fixed; top: 60px; left: 300px; right: 0; bottom: 0; z-index: 50; background: rgba(0,0,0,0.35); backdrop-filter: blur(4px); display: flex; align-items: stretch; padding: 12px; animation: fadeIn 0.2s ease-out; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -1163,6 +1174,20 @@ function ReportOverlay({ jobId, subject, onClose }) {
   );
 }
 
+function SubjectModal({ subject, onClose }) {
+  return (
+    <div className="subject-modal-backdrop" onClick={onClose}>
+      <div className="subject-modal" onClick={e => e.stopPropagation()}>
+        <div className="subject-modal-head">
+          <span>Original Request</span>
+          <button className="subject-modal-close" onClick={onClose}>{I.close(12)}</button>
+        </div>
+        <div className="subject-modal-body">{subject}</div>
+      </div>
+    </div>
+  );
+}
+
 // ── Run panel (live stream or replay) ────────────────────────────────────────
 function RunPanel({ job, onRunQueued, onRetry, onOpenReport, onNewInvestigation }) {
   const stepsRef = useRef([]);
@@ -1172,6 +1197,7 @@ function RunPanel({ job, onRunQueued, onRetry, onOpenReport, onNewInvestigation 
   const [isDone, setIsDone] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState(null);
+  const [showSubject, setShowSubject] = useState(false);
   const startedAt = useRef(null);
   const timerRef = useRef(null);
   const isFirstThought = useRef(true);
@@ -1400,7 +1426,13 @@ function RunPanel({ job, onRunQueued, onRetry, onOpenReport, onNewInvestigation 
       <div className="run-head">
         <div>
           <div className="job-id">JOB · {job.id.slice(0, 8).toUpperCase()} · {fmtDate(job.created_at)}</div>
-          <h2 className="job-title">{subjectDisplay(job.subject, job.id)}</h2>
+          <h2 className="job-title">
+            {subjectDisplay(job.subject, job.id)}
+            {isLongSubject(job.subject) && (
+              <button className="view-request-link" onClick={() => setShowSubject(true)}>View request</button>
+            )}
+          </h2>
+          {showSubject && <SubjectModal subject={job.subject} onClose={() => setShowSubject(false)} />}
           <div className="job-meta">
             <span>Status: <strong style={{ color: "var(--text)" }}>{job.status}</strong></span>
             {steps.length > 0 && <><span className="sep" /><span>{steps.length} steps</span></>}
