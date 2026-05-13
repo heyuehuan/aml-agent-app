@@ -1312,6 +1312,20 @@ function RunPanel({ job, onRunQueued, onRetry, onOpenReport, onNewInvestigation 
     forceUpdate();
   }
 
+  // Replay partial events for an already-running job (keeps active states, no done/collapse)
+  function replayRunningEvents(events, startedAtMs) {
+    stepsRef.current = [];
+    toolQueue.current = {};
+    isFirstThought.current = true;
+    events.forEach(handleEvent);
+    replayedCountRef.current = events.length;
+    startedAt.current = startedAtMs || Date.now();
+    setElapsed(Date.now() - startedAt.current);
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => setElapsed(Date.now() - startedAt.current), 500);
+    forceUpdate();
+  }
+
   // Run live stream
   async function runStream(jobId) {
     stepsRef.current = [];
@@ -1369,7 +1383,15 @@ function RunPanel({ job, onRunQueued, onRetry, onOpenReport, onNewInvestigation 
       _pendingRunJobId = null;
       runStream(job.id);
     } else if (job.status === "running") {
-      // Job was already running when we loaded — show status
+      const t0 = job.started_at ? new Date(job.started_at).getTime() : Date.now();
+      if (job.events && job.events.length > 0) {
+        replayRunningEvents(job.events, t0);
+      } else {
+        startedAt.current = t0;
+        setElapsed(Date.now() - t0);
+        if (timerRef.current) clearInterval(timerRef.current);
+        timerRef.current = setInterval(() => setElapsed(Date.now() - startedAt.current), 500);
+      }
     }
   }, [job?.id]);
 
@@ -1384,6 +1406,7 @@ function RunPanel({ job, onRunQueued, onRetry, onOpenReport, onNewInvestigation 
       remaining.forEach(ev => handleEvent(ev));
       replayedCountRef.current = job.events.length;
     }
+    if (timerRef.current) clearInterval(timerRef.current);
     if (job.status === "completed") {
       setReportData({ markdown: job.report_md, risk_level: job.risk_level, subject: job.subject });
     } else {
@@ -1587,8 +1610,8 @@ function App() {
   }
 
   function selectJob(job) {
-    // Fetch full job (with events) for completed jobs
     if (job.status === "completed" || job.status === "failed") {
+      // Wait for full events before showing, to avoid flash of empty content
       fetchJob(job.id, passcode).then(full => {
         setSelectedJob(full);
         setView("job");
@@ -1596,6 +1619,13 @@ function App() {
         setSelectedJob(job);
         setView("job");
       });
+    } else if (job.status === "running") {
+      // Show immediately, then update with partial events
+      setSelectedJob(job);
+      setView("job");
+      fetchJob(job.id, passcode)
+        .then(full => setSelectedJob(curr => curr?.id === full.id ? full : curr))
+        .catch(() => {});
     } else {
       setSelectedJob(job);
       setView("job");
