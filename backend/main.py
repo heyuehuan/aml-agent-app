@@ -140,6 +140,9 @@ async def execute_job(job_id: str):
         db.reset_to_queued(job_id)
 
     async def event_stream():
+        # Immediate keepalive comment so Safari/proxies don't drop the connection
+        # before the agent initialises and sends its first real event.
+        yield ": keepalive\n\n"
         try:
             async for event in streaming.stream_investigation(job_id, job["subject"]):
                 yield f"data: {json.dumps(event)}\n\n"
@@ -163,6 +166,7 @@ async def execute_job(job_id: str):
 @app.on_event("startup")
 def startup():
     db.init_db()
+    db.reset_stuck_running_jobs()
     logging.getLogger(__name__).info("DB initialised. Passcode: %s", DEMO_PASSCODE)
 
 

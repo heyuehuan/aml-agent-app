@@ -1,0 +1,16 @@
+[Unit]
+Description=Real-time AML Agent
+After=network.target
+
+[Service]
+User=realtimeaml
+WorkingDirectory=/opt/realtimeaml/app/backend
+EnvironmentFile=/opt/realtimeaml/app/.env
+ExecStart=/opt/realtimeaml/.local/bin/uv run uvicorn main:app --host 127.0.0.1 --port 8001
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

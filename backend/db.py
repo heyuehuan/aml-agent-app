@@ -140,6 +140,17 @@ def reset_to_queued(job_id: str) -> None:
         conn.commit()
 
 
+def reset_stuck_running_jobs() -> None:
+    """On startup, fail any jobs left in 'running' state from a previous session."""
+    now = datetime.now(timezone.utc).isoformat()
+    with _lock, _conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET status='failed', finished_at=?, error='Server restarted' WHERE status='running'",
+            (now,),
+        )
+        conn.commit()
+
+
 def delete_job(job_id: str) -> None:
     with _lock, _conn() as conn:
         conn.execute("DELETE FROM jobs WHERE id=?", (job_id,))
