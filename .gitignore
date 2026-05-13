@@ -1,0 +1,26 @@
+# Credentials & secrets
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Database (runtime data, not source)
+backend/jobs.db
+backend/aml_agent/data/*.db
+
+# Dev artefacts
+dev_logs/
+.claude/
+
+# Reference / evaluation code (not part of the app)
+reference-aml-agent-eval/
+
+# OS
+.DS_Store
