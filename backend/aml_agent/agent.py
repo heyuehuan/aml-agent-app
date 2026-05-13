@@ -18,7 +18,7 @@ from typing import Any
 
 from google.adk.agents import LlmAgent
 from google.adk.tools.function_tool import FunctionTool
-from google.genai.types import GenerateContentConfig, ThinkingConfig
+from google.genai.types import GenerateContentConfig, HttpOptions, HttpRetryOptions, ThinkingConfig
 
 from aml_agent.config import Configs
 from aml_agent.prompts import AGENT_INSTRUCTIONS
@@ -102,6 +102,9 @@ def create_aml_agent(
         generate_content_config=GenerateContentConfig(
             temperature=temperature,
             thinking_config=ThinkingConfig(include_thoughts=True),
+            http_options=HttpOptions(
+                retry_options=HttpRetryOptions(initial_delay=5, attempts=3),
+            ),
         ),
         before_model_callback=before_model_callback,
         after_model_callback=after_model_callback,
