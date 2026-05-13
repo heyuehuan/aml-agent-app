@@ -140,15 +140,45 @@ async def execute_job(job_id: str):
         db.reset_to_queued(job_id)
 
     async def event_stream():
-        # Immediate keepalive comment so Safari/proxies don't drop the connection
-        # before the agent initialises and sends its first real event.
+        # Immediate keepalive so Safari/proxies don't drop before first real event.
         yield ": keepalive\n\n"
+
+        queue: asyncio.Queue = asyncio.Queue()
+
+        async def _producer():
+            try:
+                async for event in streaming.stream_investigation(job_id, job["subject"]):
+                    await queue.put(("event", event))
+            except Exception as exc:
+                await queue.put(("error", exc))
+            finally:
+                await queue.put(("done", None))
+
+        async def _heartbeat():
+            # Send a keepalive comment every 20 s to prevent proxy/browser timeouts
+            # during long silent LLM calls (ADK uses non-streaming Vertex calls).
+            while True:
+                await asyncio.sleep(20)
+                await queue.put(("keepalive", None))
+
+        producer_task = asyncio.create_task(_producer())
+        heartbeat_task = asyncio.create_task(_heartbeat())
         try:
-            async for event in streaming.stream_investigation(job_id, job["subject"]):
-                yield f"data: {json.dumps(event)}\n\n"
-        except Exception as exc:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            while True:
+                kind, data = await queue.get()
+                if kind == "keepalive":
+                    yield ": keepalive\n\n"
+                elif kind == "event":
+                    yield f"data: {json.dumps(data)}\n\n"
+                elif kind == "error":
+                    yield f"data: {json.dumps({'type': 'error', 'message': str(data)})}\n\n"
+                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                    break
+                elif kind == "done":
+                    break
+        finally:
+            heartbeat_task.cancel()
+            producer_task.cancel()
 
     return StreamingResponse(
         event_stream(),
