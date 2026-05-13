@@ -295,6 +295,7 @@ html, body {
 .suggestion:hover { color: var(--text); }
 .suggestion:hover .tc-id { background: var(--red-mid); }
 .suggestion .tc-id { font-family: "JetBrains Mono", monospace; font-size: 14px; font-weight: 700; color: var(--red); background: var(--red-soft); border: 1px solid var(--red-mid); border-radius: 3px; padding: 1px 5px; flex-shrink: 0; letter-spacing: 0.04em; transition: background 0.12s; }
+.suggestion .tc-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; flex-shrink: 0; color: var(--red); }
 .suggestion .tc-query { font-size: 14px; font-weight: 400; flex: 1; text-align: left; line-height: 1.5; }
 
 /* ===== Run / detail view ===== */
@@ -518,6 +519,7 @@ const I = {
   list: (s=14) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>,
   chevDown: (s=10) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>,
   chevUp: (s=10) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="m18 15-6-6-6 6"/></svg>,
+  mail: (s=14) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 7 10-7"/></svg>,
 };
 
 // ── Suggestions — representative sample from test_cases.csv ──────────────────
@@ -527,6 +529,22 @@ const SUGGESTIONS = [
   { id: "TC-007", query: "Stakeholder flagged Francesca Paola ALBANESE for further investigation: sanctioned entity." },
   { id: "TC-010", query: "Please review Ryan Wedding — flagged during onboarding screening." },
   { id: "TC-018", query: "Counterparty FTX requires enhanced screening." },
+  { id: "TC-023", icon: "mail", label: "Email example", query: `From: Bob Smith <bob.smith@demobank.com>
+To: real-time-aml-agent@example-email.aml.ai
+
+Hi Olivia,
+
+We are currently conducting an enhanced due diligence review on the following entity and would appreciate your support in gathering the relevant information.
+
+Name: Daniel He (He Yi)
+Nationality: China
+
+Please find all related transactions, gather open-source intelligence including adverse media, PEP status, and sanctions exposure, and cross-reference against our internal watchlist and flagged entity registry.
+
+This case has been escalated to Level 2 review following unusual structuring patterns identified by our automated monitoring system.
+
+Best regards,
+Bob Smith` },
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -548,6 +566,14 @@ function fmtDate(iso) {
   const now = new Date();
   if (d.toDateString() === now.toDateString()) return "Today " + fmtTime(iso);
   return d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " + fmtTime(iso);
+}
+
+function isLongSubject(subject) {
+  return (subject || "").split("\n").length > 3 || (subject || "").length > 200;
+}
+
+function subjectDisplay(subject, jobId) {
+  return isLongSubject(subject) ? "Task #" + jobId.slice(0, 8).toUpperCase() : subject;
 }
 
 // Pending run job — set before RunPanel mounts so useEffect can pick it up on mount
@@ -792,7 +818,7 @@ function JobItem({ job, active, onSelect, onRun, onDelete }) {
   return (
     <div className={"job-item" + (active ? " active" : "")} onClick={onSelect}>
       <div className="job-item-top">
-        <span className="job-subject" title={job.subject}>{job.subject}</span>
+        <span className="job-subject" title={job.subject}>{subjectDisplay(job.subject, job.id)}</span>
         {job.risk_level && <span className={"job-risk " + job.risk_level}>{job.risk_level}</span>}
       </div>
       <div className="job-item-meta">
@@ -860,12 +886,18 @@ function ComposerPanel({ onQueue, onRunNow }) {
       <div className="suggestions">
         <div className="suggestions-label">Examples:</div>
         <div className="suggestions-list">
-          {SUGGESTIONS.map((s) => (
-            <button key={s.id} className="suggestion" onClick={() => setQuery(s.query)}>
-              <span className="tc-id">{s.id}</span>
-              <span className="tc-query">{s.query}</span>
-            </button>
-          ))}
+          {SUGGESTIONS.map((s) => {
+            const firstLine = s.query.split("\n").find(l => l.trim()) || s.query;
+            const preview = s.label || (isLongSubject(s.query) ? firstLine.trim() + " …" : s.query);
+            return (
+              <button key={s.id} className="suggestion" onClick={() => setQuery(s.query)}>
+                {s.icon
+                  ? <span className="tc-icon">{I[s.icon] && I[s.icon](14)}</span>
+                  : <span className="tc-id">{s.id}</span>}
+                <span className="tc-query">{preview}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -1368,7 +1400,7 @@ function RunPanel({ job, onRunQueued, onRetry, onOpenReport, onNewInvestigation 
       <div className="run-head">
         <div>
           <div className="job-id">JOB · {job.id.slice(0, 8).toUpperCase()} · {fmtDate(job.created_at)}</div>
-          <h2 className="job-title">{job.subject}</h2>
+          <h2 className="job-title">{subjectDisplay(job.subject, job.id)}</h2>
           <div className="job-meta">
             <span>Status: <strong style={{ color: "var(--text)" }}>{job.status}</strong></span>
             {steps.length > 0 && <><span className="sep" /><span>{steps.length} steps</span></>}
