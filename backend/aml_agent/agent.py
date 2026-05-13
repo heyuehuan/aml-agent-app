@@ -103,6 +103,7 @@ def create_aml_agent(
             temperature=temperature,
             thinking_config=ThinkingConfig(include_thoughts=True),
             http_options=HttpOptions(
+                timeout=300_000,  # 5-minute per-call timeout (ms); prevents silent hangs
                 retry_options=HttpRetryOptions(initial_delay=5, attempts=3),
             ),
         ),

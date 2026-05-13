@@ -25,6 +25,8 @@ from aml_agent.config import Configs
 
 logger = logging.getLogger(__name__)
 
+_JOB_TIMEOUT_SEC = 30 * 60  # hard cap per investigation
+
 # Suppress noisy upstream warnings
 import warnings
 warnings.filterwarnings("ignore", message="Inheritance class AiohttpClientSession", category=DeprecationWarning)
@@ -88,74 +90,80 @@ async def stream_investigation(
         # Track pending tool calls so we can pair them with responses (FIFO per tool name)
         pending_tools: dict[str, list[str]] = {}  # tool_name → [call_id, ...]
 
-        async for event in runner.run_async(
-            session_id=session_id,
-            user_id="demo_user",
-            new_message=message,
-        ):
-            if not event.content or not event.content.parts:
-                continue
+        try:
+            async with asyncio.timeout(_JOB_TIMEOUT_SEC):
+                async for event in runner.run_async(
+                    session_id=session_id,
+                    user_id="demo_user",
+                    new_message=message,
+                ):
+                    if not event.content or not event.content.parts:
+                        continue
 
-            for part in event.content.parts:
-                is_thought = getattr(part, "thought", False)
+                    for part in event.content.parts:
+                        is_thought = getattr(part, "thought", False)
 
-                # Thinking / reasoning text
-                if is_thought and part.text:
-                    evt = _emit({"type": "thinking", "content": part.text})
-                    yield evt
-                    continue
+                        # Thinking / reasoning text
+                        if is_thought and part.text:
+                            evt = _emit({"type": "thinking", "content": part.text})
+                            yield evt
+                            continue
 
-                # Tool call
-                fc = getattr(part, "function_call", None)
-                if fc:
-                    call_id = getattr(fc, "id", None) or fc.name
-                    args = dict(fc.args) if fc.args else {}
-                    pending_tools.setdefault(fc.name, []).append(call_id)
-                    evt = _emit({"type": "tool_call", "tool": fc.name, "args": args, "call_id": call_id})
-                    yield evt
-                    continue
+                        # Tool call
+                        fc = getattr(part, "function_call", None)
+                        if fc:
+                            call_id = getattr(fc, "id", None) or fc.name
+                            args = dict(fc.args) if fc.args else {}
+                            pending_tools.setdefault(fc.name, []).append(call_id)
+                            evt = _emit({"type": "tool_call", "tool": fc.name, "args": args, "call_id": call_id})
+                            yield evt
+                            continue
 
-                # Tool response
-                fr = getattr(part, "function_response", None)
-                if fr:
-                    resp = fr.response or {}
-                    if isinstance(resp, dict):
-                        result_text = resp.get("result", str(resp))
-                    else:
-                        result_text = str(resp)
-                    evt = _emit({
-                        "type": "tool_result",
-                        "tool": fr.name,
-                        "result": result_text,
-                    })
-                    yield evt
-                    continue
+                        # Tool response
+                        fr = getattr(part, "function_response", None)
+                        if fr:
+                            resp = fr.response or {}
+                            if isinstance(resp, dict):
+                                result_text = resp.get("result", str(resp))
+                            else:
+                                result_text = str(resp)
+                            evt = _emit({
+                                "type": "tool_result",
+                                "tool": fr.name,
+                                "result": result_text,
+                            })
+                            yield evt
+                            continue
 
-                # Regular text output (non-thought)
-                if part.text:
-                    evt = _emit({"type": "text", "content": part.text})
-                    yield evt
+                        # Regular text output (non-thought)
+                        if part.text:
+                            evt = _emit({"type": "text", "content": part.text})
+                            yield evt
 
-            # Final response → extract report
-            if event.is_final_response() and event.content:
-                final_report_md = "".join(
-                    p.text or ""
-                    for p in event.content.parts
-                    if p.text and not getattr(p, "thought", False)
-                )
-                # Strip preamble before the formal heading
-                match = re.search(r"(#\s+AML Investigation Report:)", final_report_md)
-                if match:
-                    final_report_md = final_report_md[match.start():]
+                    # Final response → extract report
+                    if event.is_final_response() and event.content:
+                        final_report_md = "".join(
+                            p.text or ""
+                            for p in event.content.parts
+                            if p.text and not getattr(p, "thought", False)
+                        )
+                        # Strip preamble before the formal heading
+                        match = re.search(r"(#\s+AML Investigation Report:)", final_report_md)
+                        if match:
+                            final_report_md = final_report_md[match.start():]
 
-                risk_level = _extract_risk_level(final_report_md)
-                evt = _emit({
-                    "type": "report",
-                    "markdown": final_report_md,
-                    "risk_level": risk_level or "UNKNOWN",
-                    "subject": subject,
-                })
-                yield evt
+                        risk_level = _extract_risk_level(final_report_md)
+                        evt = _emit({
+                            "type": "report",
+                            "markdown": final_report_md,
+                            "risk_level": risk_level or "UNKNOWN",
+                            "subject": subject,
+                        })
+                        yield evt
+        except TimeoutError as exc:
+            raise RuntimeError(
+                f"Investigation timed out after {_JOB_TIMEOUT_SEC // 60} minutes"
+            ) from exc
 
         # Clean up agent tools
         await runner.close()
